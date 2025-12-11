@@ -2,9 +2,9 @@ name: CI - Test Model
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ dev ]
+    branches: [ main ]
 
 jobs:
   test:

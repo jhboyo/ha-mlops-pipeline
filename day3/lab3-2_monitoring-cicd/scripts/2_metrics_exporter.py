@@ -156,7 +156,7 @@ def update_model_info():
         'framework_version': '1.3.2',
         'python_version': '3.9',
         'model_type': 'RandomForestRegressor',
-        'training_date': '2025-12-09'
+        'training_date': '2024-12-09'
     })
 
 
