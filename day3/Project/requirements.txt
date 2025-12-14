@@ -1,7 +1,10 @@
-# Kubeflow Pipelines v2 SDK
-kfp>=2.0.0
+# Day 3 Project Requirements
+# Python 패키지 의존성
 
-# MLflow for experiment tracking
+# Kubeflow Pipelines SDK
+kfp>=2.0.0,<3.0.0
+
+# MLflow
 mlflow>=2.9.0
 
 # Machine Learning
@@ -9,5 +12,8 @@ scikit-learn>=1.3.0
 pandas>=2.0.0
 numpy>=1.24.0
 
-# Kubernetes client (for KServe deployment)
-kubernetes>=28.1.0
+# Kubernetes (KServe 배포용)
+kubernetes>=28.0.0
+
+# Jupyter (노트북 환경)
+ipykernel>=6.0.0

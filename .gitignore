@@ -1,9 +1,7 @@
-*.DS_Store
-*.venv
+.DS_Store
+.venv
 *.joblib
 *.pyc
-*test_env
+test_env
 *.pytest_cache
 *.db
-*.joblib
-*.onnx

@@ -65,8 +65,9 @@ source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate  # Windows
 
 # 2. 환경 변수 설정
-export ECR_REGISTRY="<YOUR_ECR_REGISTRY>"  # 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
-export NAMESPACE="kubeflow-user01"         # 본인의 네임스페이스
+export ECR_REGISTRY="<YOUR_ECR_REGISTRY>"   # 예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
+export NAMESPACE="<YOUR_NAMESPACE>"         # 본인의 네임스페이스
+export USER_NUM="<YOUR_USER_NUM>"           # 본인의 번호 (01 ~ 15)
 
 # 3. AWS CLI 로그인 확인
 aws sts get-caller-identity
@@ -235,7 +236,6 @@ curl -X POST http://localhost:8000/predict/batch \
 
 브라우저에서 접속:
 - Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
 
 ---
 
@@ -244,7 +244,7 @@ curl -X POST http://localhost:8000/predict/batch \
 #### 2-1. Docker 이미지 빌드
 
 ```bash
-docker build --platform linux/amd64 -t iris-api:v1 .
+docker build --platform linux/amd64 -t user<USER_NUM>:v1 .
 ```
 
 **예상 출력:**
@@ -261,7 +261,7 @@ docker build --platform linux/amd64 -t iris-api:v1 .
 
 ```bash
 # 컨테이너 실행
-docker run -d -p 8000:8000 --name iris-api-test iris-api:v1
+docker run -d -p 8000:8000 --name iris-api-test user<USER_NUM>:v1
 
 # 로그 확인
 docker logs iris-api-test
@@ -666,7 +666,7 @@ iris-api-xxxxx-yyyyy        0/1     ImagePullBackOff   0          2m
 echo $ECR_REGISTRY
 
 # 이미지가 ECR에 푸시되었는지 확인
-aws ecr describe-images --repository-name mlops-training/iris-api
+aws ecr describe-images --repository-name mlops-training/user<USER_NUM>
 
 # Pod 상세 정보 확인
 kubectl describe pod -n $NAMESPACE <pod-name>
@@ -762,7 +762,7 @@ kubectl get all -n $NAMESPACE -l app=iris-api
 
 # Docker 이미지 정리 (선택사항)
 docker rmi iris-api:v1
-docker rmi ${ECR_REGISTRY}/mlops-training/iris-api:v1
+docker rmi ${ECR_REGISTRY}/mlops-training/user<USER_NUM>:v1
 ```
 
 ---
@@ -825,6 +825,4 @@ Lab 2-1을 완료했다면 다음 실습으로 진행하세요:
 
 ---
 
-**작성일**: 2025-12-09  
-**Lab**: 2-1 FastAPI 모델 서빙  
-**버전**: 2.0 (Python 3.12 호환)
+© 2025 현대오토에버 MLOps Training

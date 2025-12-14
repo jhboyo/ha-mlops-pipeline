@@ -49,10 +49,10 @@ Lab 1-2: Hello World Pipeline (40분)
 ```
 lab1-2_hello-pipeline/
 ├── README.md                    # ⭐ 이 파일 (실습 가이드)
-├── pipeline_simple_v2.py        # 파이프라인 Python 스크립트
+├── hello_pipeline.py            # 파이프라인 Python 스크립트
 ├── requirements.txt             # Python 패키지 의존성
 └── notebooks/
-    └── README_NOTEBOOK.md       # Jupyter Notebook 가이드
+    └── hello_pipeline.ipynb     # Jupyter Notebook 버전
 ```
 
 ---
@@ -170,7 +170,7 @@ def hello_pipeline(a: int = 10, b: int = 20):
 
 ### Step 2-1: 파이프라인 스크립트 확인
 
-**파일: `pipeline_simple_v2.py`**
+**파일: `hello_pipeline.py`**
 
 ```python
 """
@@ -184,16 +184,6 @@ from kfp import compiler
 # Component 1: 두 숫자 더하기
 @dsl.component(base_image='python:3.11')
 def add(a: int, b: int) -> int:
-    """
-    두 숫자를 더합니다.
-    
-    Args:
-        a: 첫 번째 숫자
-        b: 두 번째 숫자
-    
-    Returns:
-        두 숫자의 합
-    """
     result = a + b
     print(f"Add: {a} + {b} = {result}")
     return result
@@ -202,16 +192,6 @@ def add(a: int, b: int) -> int:
 # Component 2: 숫자에 factor 곱하기
 @dsl.component(base_image='python:3.11')
 def multiply(x: int, factor: int = 2) -> int:
-    """
-    숫자에 factor를 곱합니다.
-    
-    Args:
-        x: 입력 숫자
-        factor: 곱할 값 (기본값: 2)
-    
-    Returns:
-        곱셈 결과
-    """
     result = x * factor
     print(f"Multiply: {x} * {factor} = {result}")
     return result
@@ -220,12 +200,6 @@ def multiply(x: int, factor: int = 2) -> int:
 # Component 3: 최종 결과 출력
 @dsl.component(base_image='python:3.11')
 def print_result(value: int):
-    """
-    최종 결과를 출력합니다.
-    
-    Args:
-        value: 출력할 값
-    """
     print("=" * 50)
     print(f"Final Result: {value}")
     print("=" * 50)
@@ -241,17 +215,6 @@ def hello_pipeline(
     b: int = 5,
     factor: int = 2
 ):
-    """
-    Hello World Pipeline
-    
-    계산: (a + b) * factor
-    
-    Args:
-        a: 첫 번째 숫자 (기본값: 3)
-        b: 두 번째 숫자 (기본값: 5)
-        factor: 곱할 값 (기본값: 2)
-    """
-    
     # Step 1: a + b 계산
     add_task = add(a=a, b=b)
     
@@ -272,10 +235,6 @@ if __name__ == '__main__':
         package_path='hello_pipeline.yaml'
     )
     print("✅ 파이프라인 컴파일 완료: hello_pipeline.yaml")
-    print("\n다음 단계:")
-    print("  1. Kubeflow Dashboard 접속")
-    print("  2. Pipelines → Upload pipeline")
-    print("  3. hello_pipeline.yaml 업로드")
 ```
 
 ### Step 2-2: 파이프라인 컴파일
@@ -300,45 +259,6 @@ python pipeline_simple_v2.py
 ls -lh hello_pipeline.yaml
 ```
 
-**예상 출력:**
-```
--rw-r--r--  1 user  staff   2.5K Dec  8 14:00 hello_pipeline.yaml
-```
-
-### Step 2-3: YAML 파일 내용 확인 (선택사항)
-
-```bash
-# YAML 파일의 처음 30줄 확인
-head -30 hello_pipeline.yaml
-```
-
-**YAML 파일 구조:**
-```yaml
-# Kubeflow Pipelines API version
-apiVersion: argoproj.io/v1alpha1
-kind: Workflow
-
-metadata:
-  generateName: hello-world-pipeline-
-  
-spec:
-  # 파이프라인 실행 설정
-  entrypoint: hello-world-pipeline
-  
-  # Component 템플릿 정의
-  templates:
-    - name: add
-      inputs:
-        parameters:
-          - name: a
-          - name: b
-      outputs:
-        parameters:
-          - name: Output
-            valueFrom:
-              path: /tmp/outputs/Output/data
-```
-
 ---
 
 ## 🚀 Part 3: 파이프라인 실행 (15분)
@@ -348,7 +268,7 @@ spec:
 ```bash
 # 포트 포워딩 (터미널 1)
 export USER_NUM="01"  # 본인 번호
-kubectl port-forward svc/ml-pipeline-ui -n kubeflow-user${USER_NUM} 8080:80
+kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
 ```
 
 **브라우저에서 접속:**
@@ -449,12 +369,6 @@ Final Result: 90
 | 7 | 3 | 5 | 50 | (7 + 3) × 5 = 50 |
 | 100 | 200 | 2 | 600 | (100 + 200) × 2 = 600 |
 
-**새로운 Run 생성 방법:**
-1. Pipelines → Hello World Pipeline
-2. "Create run" 클릭
-3. 다른 파라미터 값 입력
-4. "Start" 클릭
-
 ---
 
 ## ✅ 완료 체크리스트
@@ -465,7 +379,7 @@ Final Result: 90
 - [ ] DAG (실행 흐름) 이해
 
 ### Part 2: 파이프라인 작성 (15분)
-- [ ] pipeline_simple_v2.py 코드 이해
+- [ ] hello_pipeline.py 코드 이해
 - [ ] 파이프라인 컴파일 성공
 - [ ] hello_pipeline.yaml 파일 생성 확인
 
@@ -519,7 +433,7 @@ Final Result: 90
 
 ---
 
-## 💡 문제 해결
+## 💡 문제 해결 (Troubleshooting)
 
 ### 문제 1: "ModuleNotFoundError: No module named 'kfp'"
 
@@ -539,7 +453,7 @@ pip install -r requirements.txt
 **해결 방법:**
 ```bash
 # 파이프라인 재컴파일
-python pipeline_simple_v2.py
+python hello_pipeline.py
 
 # YAML 파일 존재 확인
 ls -lh hello_pipeline.yaml
@@ -548,40 +462,95 @@ ls -lh hello_pipeline.yaml
 python -c "import yaml; yaml.safe_load(open('hello_pipeline.yaml'))"
 ```
 
-### 문제 3: Run 상태가 "Pending"에서 멈춤
+### 문제 3: Run 상태가 "Error"로 표시됨
+
+**원인:** ResourceQuota로 인해 Pod 생성 실패
+
+**증상:**
+```
+failed quota: kf-resource-quota: must specify cpu for: init,wait; memory for: init,wait
+```
+
+**해결 방법 (강사 실행):**
+```bash
+# LimitRange 설정 확인
+kubectl get limitrange -n kubeflow-user${USER_NUM}
+
+# LimitRange가 없으면 생성
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limit-range
+  namespace: kubeflow-user${USER_NUM}
+spec:
+  limits:
+  - type: Container
+    default:
+      cpu: "1"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "200m"
+      memory: "256Mi"
+    max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+EOF
+```
+
+**진단 방법:**
+```bash
+# Workflow 상태 확인
+kubectl get workflows -n kubeflow-user${USER_NUM}
+
+# Workflow 상세 확인
+kubectl describe workflow <workflow-name> -n kubeflow-user${USER_NUM}
+```
+
+### 문제 4: "Cannot get MLMD objects from Metadata store" 에러
+
+**원인:** 파이프라인 실행 실패로 메타데이터가 생성되지 않음 (UI 표시 문제)
+
+**확인 방법:**
+```bash
+# 실제 Workflow 상태 확인
+kubectl get workflows -n kubeflow-user${USER_NUM}
+
+# Error 상태인 경우 상세 확인
+kubectl describe workflow <workflow-name> -n kubeflow-user${USER_NUM}
+```
+
+**해결 방법:**
+1. Workflow 에러 메시지 확인 (위 명령어 실행)
+2. 대부분 ResourceQuota/LimitRange 문제 → 문제 3 해결 방법 적용
+3. 해결 후 파이프라인 재실행
+
+**메타데이터 서비스 재시작 (선택사항):**
+```bash
+kubectl rollout restart deployment metadata-grpc-deployment -n kubeflow
+kubectl rollout restart deployment ml-pipeline -n kubeflow
+```
+
+### 문제 5: Run 상태가 "Pending"에서 멈춤
 
 **원인:** 리소스 부족 또는 파드 스케줄링 실패
 
 **해결 방법:**
 ```bash
 # 파드 상태 확인
-kubectl get pods -n kubeflow-user01
+kubectl get pods -n kubeflow-user${USER_NUM}
 
 # 이벤트 확인
-kubectl get events -n kubeflow-user01 --sort-by='.lastTimestamp'
+kubectl get events -n kubeflow-user${USER_NUM} --sort-by='.lastTimestamp'
 
 # 특정 파드 상세 정보
-kubectl describe pod <POD_NAME> -n kubeflow-user01
+kubectl describe pod <POD_NAME> -n kubeflow-user${USER_NUM}
 ```
 
-### 문제 4: Component 로그에 "Error: ..."
-
-**원인:** Component 코드 오류
-
-**해결 방법:**
-```bash
-# 로컬에서 Component 함수 테스트
-python -c "
-from pipeline_simple_v2 import add, multiply, print_result
-
-# Component 함수를 일반 함수처럼 호출
-result1 = add(10, 20)
-result2 = multiply(result1, 3)
-print_result(result2)
-"
-```
-
-### 문제 5: "UTF-8 Collation Error"
+### 문제 6: "UTF-8 Collation Error"
 
 **원인:** Pipeline/Component 이름에 한글 사용
 
@@ -592,6 +561,75 @@ print_result(result2)
 - ✅ Run name: "experiment-001"
 
 **모든 이름과 description은 영어만 사용하세요!**
+
+### 문제 7: Component 로그에 "Error: ..."
+
+**원인:** Component 코드 오류
+
+**해결 방법:**
+```bash
+# 로컬에서 Component 함수 테스트
+python -c "
+from pipeline_simple_v2 import add, multiply, print_result
+
+# Component 함수를 일반 함수처럼 호출
+result1 = add.python_func(10, 20)
+result2 = multiply.python_func(result1, 3)
+print_result.python_func(result2)
+"
+```
+
+---
+
+## 🔧 유용한 명령어
+
+### 환경 확인
+
+```bash
+# 환경 변수 설정
+export USER_NUM="01"  # 본인 번호로 변경
+
+# 네임스페이스 Pod 확인
+kubectl get pods -n kubeflow-user${USER_NUM}
+
+# Workflow 목록 확인
+kubectl get workflows -n kubeflow-user${USER_NUM}
+
+# LimitRange 확인
+kubectl get limitrange -n kubeflow-user${USER_NUM}
+
+# ResourceQuota 확인
+kubectl describe resourcequota -n kubeflow-user${USER_NUM}
+```
+
+### 파이프라인 관련
+
+```bash
+# 파이프라인 컴파일
+python hello_pipeline.py
+
+# YAML 파일 확인
+cat hello_pipeline.yaml
+
+# 포트 포워딩
+kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
+```
+
+### 문제 진단
+
+```bash
+# Workflow 상세 확인
+kubectl describe workflow <workflow-name> -n kubeflow-user${USER_NUM}
+
+# 파드 로그 확인
+kubectl logs <POD_NAME> -n kubeflow-user${USER_NUM}
+
+# 이벤트 확인
+kubectl get events -n kubeflow-user${USER_NUM} --sort-by='.lastTimestamp' | tail -20
+
+# 실패한 Workflow 삭제
+kubectl delete workflows --all -n kubeflow-user${USER_NUM}
+```
 
 ---
 
@@ -612,24 +650,10 @@ print_result(result2)
 - [KFP SDK v2 API Reference](https://kubeflow-pipelines.readthedocs.io/en/stable/source/dsl.html)
 - [Component 개발 가이드](https://www.kubeflow.org/docs/components/pipelines/v2/components/)
 
-### 유용한 명령어
-
-```bash
-# 파이프라인 컴파일
-python pipeline_simple_v2.py
-
-# YAML 파일 확인
-cat hello_pipeline.yaml
-
-# Run 상태 확인 (kubectl)
-kubectl get pods -n kubeflow-user01
-
-# 파드 로그 확인
-kubectl logs <POD_NAME> -n kubeflow-user01
-
-# 포트 포워딩
-kubectl port-forward svc/ml-pipeline-ui -n kubeflow-user01 8080:80
-```
+### 트러블슈팅
+- [Kubernetes LimitRange 문서](https://kubernetes.io/docs/concepts/policy/limit-range/)
+- [Kubernetes ResourceQuota 문서](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
+- [Argo Workflows 트러블슈팅](https://argoproj.github.io/argo-workflows/troubleshooting/)
 
 ---
 

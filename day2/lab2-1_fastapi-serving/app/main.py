@@ -9,9 +9,6 @@ Endpoints:
     - GET  /health     : Health check
     - POST /predict    : 단일 예측
     - POST /predict/batch : 배치 예측
-
-Author: MLOps Training Team
-Date: 2025-12-09
 """
 
 from fastapi import FastAPI, HTTPException

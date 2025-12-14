@@ -389,4 +389,4 @@ pip install -r requirements.txt --force-reinstall
 
 ---
 
-© 2025 MLOps Training Lab 3-1
+© 2025 현대오토에버 MLOps Training

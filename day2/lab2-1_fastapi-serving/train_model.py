@@ -4,9 +4,6 @@ Lab 2-1: Iris 분류 모델 학습
 =============================
 
 FastAPI 서빙을 위한 Iris 분류 모델을 학습합니다.
-
-Author: MLOps Training Team
-Date: 2025-12-09
 """
 
 import sys
@@ -194,7 +191,7 @@ def print_next_steps():
     print("        curl http://localhost:8000/health")
     print()
     print("     3. Docker 빌드:")
-    print("        docker build -t iris-api:v1 .")
+    print("        docker build -t user<USER_NUM>:v1 .")
     print()
     print("     4. Kubernetes 배포:")
     print("        ./scripts/build_and_deploy.sh")

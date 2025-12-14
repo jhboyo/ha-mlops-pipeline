@@ -1,92 +1,238 @@
-name: CI - Test Model
+# .github/workflows/ci-test.yaml
+# CI Pipeline: 코드 테스트 및 품질 검사
+#
+# 트리거: main/develop 브랜치 푸시 또는 PR
+
+name: CI - Test & Build
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [dev]
+    paths:
+      - 'day3/lab3-2_monitoring-cicd/src/**'
+      - 'day3/lab3-2_monitoring-cicd/tests/**'
+      - 'day3/lab3-2_monitoring-cicd/requirements.txt'
+      - '.github/workflows/ci-test.yaml'
   pull_request:
-    branches: [ main ]
+    branches: [dev]
+
+env:
+  PYTHON_VERSION: '3.9'
+  SOURCE_PATH: day3/lab3-2_monitoring-cicd
 
 jobs:
-  test:
-    name: Test and Validate Model
+  # ============================================================
+  # Job 1: 코드 품질 검사
+  # ============================================================
+  lint:
+    name: Code Quality Check
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
+      
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort mypy
+      
+      - name: Run flake8 (syntax errors)
+        run: |
+          flake8 ${{ env.SOURCE_PATH }}/src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+      
+      - name: Run flake8 (style check)
+        run: |
+          flake8 ${{ env.SOURCE_PATH }}/src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      
+      - name: Check formatting with black
+        run: |
+          black --check --diff ${{ env.SOURCE_PATH }}/src/ || echo "Formatting issues found"
+      
+      - name: Check imports with isort
+        run: |
+          isort --check-only --diff ${{ env.SOURCE_PATH }}/src/ || echo "Import order issues found"
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v3
+  # ============================================================
+  # Job 2: 단위 테스트
+  # ============================================================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov flake8 black
-
-      - name: Lint with flake8
-        run: |
-          # Stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Exit-zero treats all errors as warnings
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      - name: Check code formatting with black
-        continue-on-error: true
-        run: |
-          black --check --diff .
-
+          pip install pytest pytest-cov pytest-asyncio
+      
       - name: Run unit tests
         run: |
-          if [ -d "tests/" ]; then
-            if [ -d "src/" ]; then
-              pytest tests/ -v --cov=src --cov-report=xml --cov-report=html
-            else
-              pytest tests/ -v --cov-report=xml --cov-report=html
-            fi
-          else
-            echo "⚠️  No tests/ directory found - skipping tests"
-            echo "This is expected for Lab 3-2 monitoring setup"
-            # Create dummy coverage files for downstream steps
-            mkdir -p htmlcov
-            echo '<?xml version="1.0" ?><coverage version="7.4.3"></coverage>' > coverage.xml
-          fi
-
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+          pytest ${{ env.SOURCE_PATH }}/tests/ -v --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
-        continue-on-error: true
-
-      - name: Generate test report
-        if: always()
-        run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Linting: ✅ Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- Unit Tests: ✅ Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- Code Coverage: See artifacts" >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload test artifacts
-        if: always()
+          fail_ci_if_error: false
+      
+      - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
-          path: |
-            htmlcov/
-            coverage.xml
-          retention-days: 30
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 7
+
+  # ============================================================
+  # Job 3: 모델 테스트
+  # ============================================================
+  model-test:
+    name: Model Validation
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install scikit-learn pandas numpy mlflow
+      
+      - name: Train test model
+        run: |
+          python -c "
+          from sklearn.datasets import fetch_california_housing
+          from sklearn.model_selection import train_test_split
+          from sklearn.ensemble import RandomForestRegressor
+          from sklearn.metrics import mean_absolute_error, r2_score
+          import joblib
+          
+          # 데이터 로드
+          data = fetch_california_housing()
+          X_train, X_test, y_train, y_test = train_test_split(
+              data.data, data.target, test_size=0.2, random_state=42
+          )
+          
+          # 모델 학습
+          model = RandomForestRegressor(n_estimators=10, random_state=42)
+          model.fit(X_train, y_train)
+          
+          # 평가
+          predictions = model.predict(X_test)
+          mae = mean_absolute_error(y_test, predictions)
+          r2 = r2_score(y_test, predictions)
+          
+          print(f'MAE: {mae:.4f}')
+          print(f'R²: {r2:.4f}')
+          
+          # 임계값 검증
+          assert mae < 0.6, f'MAE too high: {mae}'
+          assert r2 > 0.7, f'R² too low: {r2}'
+          
+          print('✅ Model validation passed!')
+          "
+      
+      - name: Model inference test
+        run: |
+          python -c "
+          from sklearn.datasets import fetch_california_housing
+          from sklearn.ensemble import RandomForestRegressor
+          import numpy as np
+          
+          # 간단한 모델 생성
+          data = fetch_california_housing()
+          model = RandomForestRegressor(n_estimators=5, random_state=42)
+          model.fit(data.data[:100], data.target[:100])
+          
+          # 추론 테스트
+          sample = np.array([[8.3252, 41.0, 6.984127, 1.023810, 322.0, 2.555556, 37.88, -122.23]])
+          prediction = model.predict(sample)
+          
+          assert len(prediction) == 1, 'Prediction failed'
+          assert prediction[0] > 0, 'Invalid prediction value'
+          
+          print(f'Prediction: {prediction[0]:.4f}')
+          print('✅ Inference test passed!')
+          "
+
+  # ============================================================
+  # Job 4: Docker 빌드 테스트
+  # ============================================================
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    needs: model-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image (test)
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.SOURCE_PATH }}
+          load: true
+          push: false
+          tags: mlops-model:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Test Docker image
+        run: |
+          docker run --rm mlops-model:test python -c "print('Container works!')"
+
+  # ============================================================
+  # Summary
+  # ============================================================
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [lint, test, model-test]
+    if: always()
+    
+    steps:
+      - name: Check CI status
+        run: |
+          if [ "${{ needs.lint.result }}" == "success" ] && \
+             [ "${{ needs.test.result }}" == "success" ] && \
+             [ "${{ needs.model-test.result }}" == "success" ]; then
+            echo "✅ All CI checks passed!"
+            exit 0
+          else
+            echo "❌ Some CI checks failed"
+            exit 1
+          fi

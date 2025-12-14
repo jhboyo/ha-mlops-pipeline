@@ -274,5 +274,4 @@ echo ""
 
 echo "💡 추가 테스트:"
 echo "  - Swagger UI: ${API_URL}/docs"
-echo "  - ReDoc: ${API_URL}/redoc"
 echo ""

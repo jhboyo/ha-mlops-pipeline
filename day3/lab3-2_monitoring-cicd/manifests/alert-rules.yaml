@@ -1,0 +1,196 @@
+# manifests/alert-rules.yaml
+# Prometheus Alert Rules for Model Drift Detection
+#
+# 이 규칙들은 Prometheus ConfigMap에 추가하거나
+# PrometheusRule CRD로 배포할 수 있습니다.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+    type: alert-rules
+data:
+  model-alerts.yml: |
+    groups:
+      # ============================================================
+      # 모델 성능 Alert
+      # ============================================================
+      - name: model_performance_alerts
+        rules:
+          # MAE가 임계값을 초과할 때
+          - alert: HighModelMAE
+            expr: model_mae_score > 0.45
+            for: 5m
+            labels:
+              severity: warning
+              category: model_drift
+            annotations:
+              summary: "High MAE detected for {{ $labels.user_id }}"
+              description: |
+                Model MAE is {{ $value | printf "%.4f" }} which exceeds threshold 0.45.
+                User: {{ $labels.user_id }}
+                Namespace: {{ $labels.namespace }}
+                Model: {{ $labels.model_name }}
+              runbook_url: "https://wiki.example.com/runbooks/high-mae"
+          
+          # MAE가 심각하게 높을 때
+          - alert: CriticalModelMAE
+            expr: model_mae_score > 0.55
+            for: 2m
+            labels:
+              severity: critical
+              category: model_drift
+            annotations:
+              summary: "Critical MAE detected for {{ $labels.user_id }}"
+              description: |
+                Model MAE is {{ $value | printf "%.4f" }} which is critically high.
+                Immediate action required!
+          
+          # R² 점수가 임계값 미만일 때
+          - alert: LowModelR2Score
+            expr: model_r2_score < 0.75
+            for: 5m
+            labels:
+              severity: warning
+              category: model_drift
+            annotations:
+              summary: "Low R² score for {{ $labels.user_id }}"
+              description: |
+                Model R² score is {{ $value | printf "%.4f" }} which is below threshold 0.75.
+                User: {{ $labels.user_id }}
+          
+          # R² 점수가 심각하게 낮을 때
+          - alert: CriticalModelR2Score
+            expr: model_r2_score < 0.65
+            for: 2m
+            labels:
+              severity: critical
+              category: model_drift
+            annotations:
+              summary: "Critical R² score for {{ $labels.user_id }}"
+              description: |
+                Model R² score is {{ $value | printf "%.4f" }} which is critically low.
+
+      # ============================================================
+      # 예측 서비스 Alert
+      # ============================================================
+      - name: prediction_service_alerts
+        rules:
+          # 예측 에러율이 높을 때
+          - alert: HighPredictionErrorRate
+            expr: |
+              (
+                rate(model_prediction_total{status="error"}[5m])
+                /
+                rate(model_prediction_total[5m])
+              ) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+              category: service_health
+            annotations:
+              summary: "High prediction error rate for {{ $labels.user_id }}"
+              description: |
+                Prediction error rate is {{ $value | humanizePercentage }}.
+                This exceeds the 5% threshold.
+          
+          # 예측 지연시간이 높을 때
+          - alert: HighPredictionLatency
+            expr: |
+              histogram_quantile(0.95, 
+                rate(model_prediction_latency_bucket[5m])
+              ) > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              category: service_health
+            annotations:
+              summary: "High prediction latency for {{ $labels.user_id }}"
+              description: |
+                95th percentile latency is {{ $value | printf "%.3f" }}s.
+                This exceeds the 500ms threshold.
+          
+          # 예측 처리량이 없을 때 (서비스 다운)
+          - alert: NoPredictionActivity
+            expr: |
+              rate(model_prediction_total[10m]) == 0
+            for: 10m
+            labels:
+              severity: critical
+              category: service_health
+            annotations:
+              summary: "No prediction activity for {{ $labels.user_id }}"
+              description: |
+                No predictions recorded in the last 10 minutes.
+                The model service may be down.
+
+      # ============================================================
+      # 인프라 Alert
+      # ============================================================
+      - name: infrastructure_alerts
+        rules:
+          # Metrics Exporter가 다운됐을 때
+          - alert: MetricsExporterDown
+            expr: up{job=~"metrics-.*"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              category: infrastructure
+            annotations:
+              summary: "Metrics Exporter is down"
+              description: |
+                Metrics Exporter {{ $labels.instance }} is not responding.
+                Check the pod status in namespace {{ $labels.namespace }}.
+          
+          # Prometheus 스크랩 실패
+          - alert: PrometheusScrapeFailed
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: warning
+              category: infrastructure
+            annotations:
+              summary: "Prometheus scrape failed for {{ $labels.job }}"
+              description: |
+                Prometheus cannot scrape target {{ $labels.instance }}.
+
+      # ============================================================
+      # Drift 복합 Alert (재학습 트리거용)
+      # ============================================================
+      - name: drift_trigger_alerts
+        rules:
+          # Drift 감지 - 재학습 필요
+          - alert: ModelDriftDetected
+            expr: |
+              (model_mae_score > 0.45) or (model_r2_score < 0.75)
+            for: 10m
+            labels:
+              severity: warning
+              category: drift_trigger
+              action: retrain
+            annotations:
+              summary: "Model drift detected - Retrain recommended"
+              description: |
+                Model drift has been detected for {{ $labels.user_id }}.
+                MAE: {{ with query "model_mae_score{user_id='{{ $labels.user_id }}'}" }}{{ . | first | value | printf "%.4f" }}{{ end }}
+                R²: {{ with query "model_r2_score{user_id='{{ $labels.user_id }}'}" }}{{ . | first | value | printf "%.4f" }}{{ end }}
+                
+                Consider triggering model retraining.
+              
+          # 심각한 Drift - 즉시 조치 필요
+          - alert: SevereModelDrift
+            expr: |
+              (model_mae_score > 0.55) or (model_r2_score < 0.65)
+            for: 5m
+            labels:
+              severity: critical
+              category: drift_trigger
+              action: immediate_retrain
+            annotations:
+              summary: "Severe model drift - Immediate action required"
+              description: |
+                Severe model drift detected for {{ $labels.user_id }}.
+                Immediate model retraining is recommended.

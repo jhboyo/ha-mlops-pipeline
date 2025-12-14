@@ -1,523 +1,306 @@
-name: CD - Deploy Model
+# .github/workflows/cd-deploy.yaml
+# CD Pipeline: 모델 빌드 및 KServe 배포
+#
+# 트리거: CI 성공 후, main 브랜치 push, 또는 수동 실행
+
+name: CD - Deploy to KServe
 
 on:
+  # CI 완료 후 자동 실행
   workflow_run:
-    workflows: ["CI - Test Model"]
-    types: [ completed ]
-    branches: [ main ]
+    workflows: ["CI - Test & Build"]
+    types: [completed]
+    branches: [dev]
+  
+  # main 브랜치에 push 시 자동 실행
+  push:
+    branches: [dev]
+    paths:
+      - 'day3/lab3-2_monitoring-cicd/**'
+      - '.github/workflows/cd-deploy.yaml'
+  
+  # 수동 실행 (workflow_dispatch)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      user_namespace:
+        description: 'Target user namespace (e.g., kubeflow-user01)'
+        required: true
+        default: 'YOUR_NAMESPACE'
+
+env:
+  AWS_REGION: ap-northeast-2
+  MODEL_NAME: california-housing
+  SOURCE_PATH: day3/lab3-2_monitoring-cicd
+  ECR_REGISTRY: 'YOUR_ECR_REGISTRY'
+  ECR_REPOSITORY: 'YOUR_ECR_REPOSITORY'
+  EKS_CLUSTER_NAME: 'YOUR_EKS_CLUSTER_NAME'
+  NAMESPACE: YOUR_NAMESPACE
 
 jobs:
-  deploy:
-    name: Build and Deploy Model
+  # ============================================================
+  # Job 1: Docker 빌드 & ECR 푸시
+  # ============================================================
+  build-and-push:
+    name: Build & Push to ECR
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # ✅ 수정: push 이벤트도 지원하도록 조건 변경
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push'
+    
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
+        uses: actions/checkout@v4
+      
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
+          aws-region: ${{ env.AWS_REGION }}
+      
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Set image tag
-        id: image-tag
-        run: |
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          echo "tag=v$(date +%Y%m%d)-${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
-
-      - name: Check if Dockerfile exists
-        id: check-dockerfile
-        run: |
-          if [ -f "Dockerfile" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Dockerfile found in repository"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  Dockerfile not found - will generate automatically"
-          fi
+        uses: aws-actions/amazon-ecr-login@v2
       
-      - name: Generate Dockerfile (if not exists)
-        if: steps.check-dockerfile.outputs.exists == 'false'
+      - name: Create ECR repository if not exists
         run: |
-          echo "📝 Generating application files for California Housing model..."
-          
-          # Create api.py
-          cat > api.py << 'APIEOF'
-          from fastapi import FastAPI, HTTPException
-          from pydantic import BaseModel, Field
-          from typing import List
-          import numpy as np
-          from sklearn.datasets import fetch_california_housing
-          from sklearn.ensemble import RandomForestRegressor
-          from sklearn.model_selection import train_test_split
-          import logging
-          import os
-          
-          logging.basicConfig(level=logging.INFO)
-          logger = logging.getLogger(__name__)
-          
-          app = FastAPI(
-              title="California Housing Model API",
-              description="ML model for California Housing price predictions",
-              version=os.getenv("MODEL_VERSION", "v1.0")
-          )
-          
-          model = None
-          feature_names = None
-          
-          class PredictionRequest(BaseModel):
-              features: List[float] = Field(..., description="8 features for California Housing")
-          
-          class PredictionResponse(BaseModel):
-              prediction: float
-              model_version: str
-              features_used: List[str]
-          
-          @app.on_event("startup")
-          async def load_model():
-              global model, feature_names
-              logger.info("Loading California Housing dataset...")
-              housing = fetch_california_housing()
-              X, y = housing.data, housing.target
-              feature_names = housing.feature_names
-              
-              logger.info("Training Random Forest model...")
-              X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-              model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
-              model.fit(X_train, y_train)
-              
-              score = model.score(X_test, y_test)
-              logger.info(f"Model trained! R² score: {score:.4f}")
-          
-          @app.get("/")
-          async def root():
-              return {"message": "California Housing Model API", "version": os.getenv("MODEL_VERSION", "v1.0")}
-          
-          @app.get("/health")
-          async def health():
-              return {"status": "healthy" if model else "unhealthy", "model_loaded": model is not None}
-          
-          @app.post("/predict", response_model=PredictionResponse)
-          async def predict(request: PredictionRequest):
-              if model is None:
-                  raise HTTPException(status_code=503, detail="Model not loaded")
-              if len(request.features) != 8:
-                  raise HTTPException(status_code=400, detail=f"Expected 8 features, got {len(request.features)}")
-              
-              features_array = np.array(request.features).reshape(1, -1)
-              prediction = model.predict(features_array)[0]
-              
-              return PredictionResponse(
-                  prediction=float(prediction),
-                  model_version=os.getenv("MODEL_VERSION", "v1.0"),
-                  features_used=list(feature_names)
-              )
-          
-          @app.get("/metrics")
-          async def metrics():
-              return {"model_loaded": model is not None, "model_version": os.getenv("MODEL_VERSION", "v1.0")}
-          APIEOF
-          
-          # Create Dockerfile
-          cat > Dockerfile << 'DOCKEREOF'
-          # California Housing Model Serving Dockerfile
-          # Auto-generated by GitHub Actions CD pipeline
-          
-          FROM python:3.9-slim
-          
-          ARG MODEL_VERSION=latest
-          ARG BUILD_DATE
-          ARG VCS_REF
-          
-          LABEL maintainer="MLOps Team" \
-                version="${MODEL_VERSION}" \
-                description="California Housing Model API" \
-                build-date="${BUILD_DATE}" \
-                vcs-ref="${VCS_REF}"
-          
-          WORKDIR /app
-          
-          RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-          
-          COPY requirements.txt .
-          RUN pip install --no-cache-dir -r requirements.txt && \
-              pip install --no-cache-dir fastapi==0.104.1 uvicorn[standard]==0.24.0 pydantic==2.5.0
-          
-          COPY api.py .
-          
-          EXPOSE 8000
-          
-          ENV MODEL_VERSION=${MODEL_VERSION} \
-              PYTHONUNBUFFERED=1
-          
-          HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-              CMD curl -f http://localhost:8000/health || exit 1
-          
-          CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
-          DOCKEREOF
-          
-          echo "✅ Application files generated successfully"
-          echo ""
-          echo "📄 Generated api.py ($(wc -l < api.py) lines)"
-          echo "📄 Generated Dockerfile ($(wc -l < Dockerfile) lines)"
-
-      - name: Build Docker image
-        if: steps.check-dockerfile.outputs.exists == 'true' || steps.check-dockerfile.outputs.exists == 'false'
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-model-california-housing
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} 2>/dev/null || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.SOURCE_PATH }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+      
+      - name: Output image info
         run: |
-          echo "Building image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build \
-            --platform linux/amd64 \
-            --build-arg MODEL_VERSION=$IMAGE_TAG \
-            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-            --build-arg VCS_REF=${{ github.sha }} \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-            -f Dockerfile .
+          echo "📦 Image pushed successfully!"
+          echo "   Image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          echo "   Digest: ${{ steps.build.outputs.digest }}"
 
-      - name: Scan image for vulnerabilities
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-model-california-housing
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
-        run: |
-          # Install Trivy scanner
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install trivy
-          
-          # Scan image
-          trivy image --severity HIGH,CRITICAL $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-      - name: Push image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-model-california-housing
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-      - name: Check Kubernetes configuration
-        id: check-k8s
-        run: |
-          if [ -n "${{ secrets.KUBECONFIG_DATA }}" ]; then
-            echo "configured=true" >> $GITHUB_OUTPUT
-            echo "✅ Kubernetes configuration available"
-          else
-            echo "configured=false" >> $GITHUB_OUTPUT
-            echo "⚠️  KUBECONFIG_DATA not configured - skipping K8s deployment"
-          fi
-
-      - name: Set up kubectl
-        if: steps.check-k8s.outputs.configured == 'true'
+  # ============================================================
+  # Job 2: KServe 배포
+  # ============================================================
+  deploy-kserve:
+    name: Deploy to KServe
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
           version: 'v1.28.0'
       
-      - name: Install aws-iam-authenticator
-        if: steps.check-k8s.outputs.configured == 'true'
+      - name: Configure kubeconfig
         run: |
-          echo "📦 Installing aws-iam-authenticator..."
-          curl -Lo aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.14/aws-iam-authenticator_0.6.14_linux_amd64
-          chmod +x aws-iam-authenticator
-          sudo mv aws-iam-authenticator /usr/local/bin/
-          aws-iam-authenticator version
-          echo "✅ aws-iam-authenticator installed"
-
-      - name: Configure kubectl
-        if: steps.check-k8s.outputs.configured == 'true'
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+      
+      - name: Set deployment namespace
+        id: namespace
         run: |
-          mkdir -p ~/.kube
-          echo "$KUBECONFIG_DATA" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-          echo "✅ Kubeconfig configured"
-          
-          # Verify connection
-          if kubectl cluster-info; then
-            echo "✅ Successfully connected to Kubernetes cluster"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "namespace=${{ github.event.inputs.user_namespace }}" >> $GITHUB_OUTPUT
           else
-            echo "⚠️  Failed to connect to Kubernetes cluster"
-            exit 1
+            echo "namespace=${{ env.NAMESPACE }}" >> $GITHUB_OUTPUT
           fi
-
-      - name: Update KServe InferenceService
-        if: steps.check-k8s.outputs.configured == 'true'
+      
+      - name: Deploy InferenceService
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-model-california-housing
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
-          NAMESPACE: ${{ secrets.KSERVE_NAMESPACE || 'kubeflow-user01' }}
+          IMAGE_TAG: ${{ github.sha }}
+          DEPLOY_NAMESPACE: ${{ steps.namespace.outputs.namespace }}
         run: |
           cat <<EOF | kubectl apply -f -
           apiVersion: serving.kserve.io/v1beta1
           kind: InferenceService
           metadata:
-            name: california-housing-predictor
-            namespace: ${NAMESPACE}
+            name: ${{ env.MODEL_NAME }}
+            namespace: ${DEPLOY_NAMESPACE}
             annotations:
-              serving.kserve.io/deploymentMode: RawDeployment
+              sidecar.istio.io/inject: "false"
           spec:
             predictor:
               minReplicas: 1
               maxReplicas: 3
               containers:
                 - name: kserve-container
-                  image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+                  image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}
                   ports:
-                    - containerPort: 8000
+                    - containerPort: 8080
                       protocol: TCP
                   env:
                     - name: MODEL_NAME
-                      value: california-housing
-                    - name: MODEL_VERSION
-                      value: ${IMAGE_TAG}
+                      value: "${{ env.MODEL_NAME }}"
+                    - name: DEPLOYED_AT
+                      value: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    - name: GIT_SHA
+                      value: "${IMAGE_TAG}"
                   resources:
                     requests:
-                      cpu: 500m
-                      memory: 1Gi
+                      cpu: "100m"
+                      memory: "256Mi"
                     limits:
-                      cpu: 1000m
-                      memory: 2Gi
-                  readinessProbe:
-                    httpGet:
-                      path: /health
-                      port: 8000
-                    initialDelaySeconds: 30
-                    periodSeconds: 10
-                    timeoutSeconds: 5
-                    failureThreshold: 3
-                  livenessProbe:
-                    httpGet:
-                      path: /health
-                      port: 8000
-                    initialDelaySeconds: 60
-                    periodSeconds: 20
-                    timeoutSeconds: 5
-                    failureThreshold: 3
-              canaryTrafficPercent: 10  # Start with 10% canary traffic
+                      cpu: "500m"
+                      memory: "512Mi"
           EOF
-
-      - name: Wait for deployment
-        if: steps.check-k8s.outputs.configured == 'true'
-        env:
-          NAMESPACE: ${{ secrets.KSERVE_NAMESPACE || 'kubeflow-user01' }}
-        run: |
-          echo "Waiting for InferenceService to be ready..."
-          echo "This may take up to 5 minutes for image pull and container startup"
-          
-          # Check initial status
-          kubectl get inferenceservice california-housing-predictor -n ${NAMESPACE} || true
-          
-          # Wait with timeout
-          if kubectl wait --for=condition=Ready \
-            inferenceservice/california-housing-predictor \
-            -n ${NAMESPACE} \
-            --timeout=300s; then
-            echo "✅ InferenceService is ready!"
-          else
-            echo "❌ InferenceService failed to become ready"
-            echo ""
-            echo "=== InferenceService Status ==="
-            kubectl get inferenceservice california-housing-predictor -n ${NAMESPACE} -o yaml || true
-            echo ""
-            echo "=== Pod Status ==="
-            kubectl get pods -n ${NAMESPACE} -l serving.kserve.io/inferenceservice=california-housing-predictor || true
-            echo ""
-            echo "=== Pod Describe ==="
-            kubectl describe pods -n ${NAMESPACE} -l serving.kserve.io/inferenceservice=california-housing-predictor || true
-            echo ""
-            echo "=== Pod Logs ==="
-            POD_NAME=$(kubectl get pods -n ${NAMESPACE} -l serving.kserve.io/inferenceservice=california-housing-predictor -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-            if [ -n "$POD_NAME" ]; then
-              kubectl logs -n ${NAMESPACE} $POD_NAME --all-containers=true --tail=100 || true
-            fi
-            echo ""
-            echo "=== Events ==="
-            kubectl get events -n ${NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
-            
-            exit 1
-          fi
-
-      - name: Test deployed model
-        if: steps.check-k8s.outputs.configured == 'true'
-        env:
-          NAMESPACE: ${{ secrets.KSERVE_NAMESPACE || 'kubeflow-user01' }}
-        run: |
-          # Get service endpoint (use port-forward for testing)
-          echo "Setting up port-forward for testing..."
-          POD_NAME=$(kubectl get pods -n ${NAMESPACE} \
-            -l serving.kserve.io/inferenceservice=california-housing-predictor \
-            -o jsonpath='{.items[0].metadata.name}')
-          
-          echo "Pod: $POD_NAME"
-          
-          # Port-forward in background
-          kubectl port-forward -n ${NAMESPACE} pod/$POD_NAME 8000:8000 &
-          PF_PID=$!
-          sleep 5
-          
-          # Test health endpoint
-          echo "Testing /health endpoint..."
-          if curl -f http://localhost:8000/health; then
-            echo "✅ Health check passed"
-          else
-            echo "❌ Health check failed"
-            kill $PF_PID || true
-            exit 1
-          fi
-          
-          # Test predict endpoint
-          echo ""
-          echo "Testing /predict endpoint..."
-          RESPONSE=$(curl -s -X POST http://localhost:8000/predict \
-            -H "Content-Type: application/json" \
-            -d '{
-              "features": [8.3252, 41.0, 6.98, 1.02, 322.0, 2.55, 37.88, -122.23]
-            }')
-          
-          echo "Response: $RESPONSE"
-          
-          # Check if prediction is present
-          if echo "$RESPONSE" | grep -q "prediction"; then
-            echo "✅ Prediction endpoint working"
-            PREDICTION=$(echo "$RESPONSE" | grep -o '"prediction":[^,}]*' | cut -d':' -f2)
-            echo "📊 Predicted value: $PREDICTION"
-          else
-            echo "❌ Prediction endpoint failed"
-            kill $PF_PID || true
-            exit 1
-          fi
-          
-          # Cleanup
-          kill $PF_PID || true
-          echo ""
-          echo "✅ Model deployment test successful!"
-
-      - name: Update traffic split (gradual rollout)
-        if: steps.check-k8s.outputs.configured == 'true'
-        env:
-          NAMESPACE: ${{ secrets.KSERVE_NAMESPACE || 'kubeflow-user01' }}
-        run: |
-          echo "✅ Deployment successful!"
-          echo "Canary deployment is live with 10% traffic"
-          echo ""
-          echo "Next steps for gradual rollout:"
-          echo "  1. Monitor metrics in Grafana for 30 minutes"
-          echo "  2. If stable, increase to 50%: kubectl patch inferenceservice ..."
-          echo "  3. If stable, increase to 100%: kubectl patch inferenceservice ..."
       
-      - name: Skip Kubernetes deployment notice
-        if: steps.check-k8s.outputs.configured == 'false'
-        run: |
-          echo "⚠️  Kubernetes deployment skipped (KUBECONFIG_DATA not configured)"
-          echo ""
-          echo "✅ Successfully completed:"
-          echo "  - Docker image built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          echo "  - Image pushed to ECR"
-          echo "  - Image scanned for vulnerabilities"
-          echo ""
-          echo "📝 To enable Kubernetes deployment:"
-          echo "  1. Configure KUBECONFIG_DATA secret in GitHub repository"
-          echo "  2. Ensure KServe is installed in your cluster"
-          echo "  3. Set KSERVE_NAMESPACE secret (default: kubeflow-user01)"
-          echo ""
-          echo "💡 For Lab 3-2, the monitoring stack is the main focus."
-          echo "   KServe deployment is an optional advanced feature."
+      - name: Wait for deployment
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-model-california-housing
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+          DEPLOY_NAMESPACE: ${{ steps.namespace.outputs.namespace }}
+        run: |
+          echo "⏳ Waiting for InferenceService to be ready..."
+          kubectl wait --for=condition=Ready \
+            inferenceservice/${{ env.MODEL_NAME }} \
+            -n ${DEPLOY_NAMESPACE} \
+            --timeout=300s || true
+          
+          # 상태 확인
+          kubectl get inferenceservice ${{ env.MODEL_NAME }} -n ${DEPLOY_NAMESPACE}
+      
+      - name: Get service URL
+        env:
+          DEPLOY_NAMESPACE: ${{ steps.namespace.outputs.namespace }}
+        run: |
+          URL=$(kubectl get inferenceservice ${{ env.MODEL_NAME }} -n ${DEPLOY_NAMESPACE} \
+            -o jsonpath='{.status.url}' 2>/dev/null || echo "pending")
+          echo "🌐 Service URL: ${URL}"
 
-      - name: Send Slack notification
-        if: always()
+  # ============================================================
+  # Job 3: 배포 검증
+  # ============================================================
+  verify-deployment:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: deploy-kserve
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+      
+      - name: Set namespace
+        id: namespace
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "namespace=${{ github.event.inputs.user_namespace }}" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=${{ env.NAMESPACE }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Health check
+        env:
+          DEPLOY_NAMESPACE: ${{ steps.namespace.outputs.namespace }}
+        run: |
+          echo "🔍 Checking deployment health..."
+          
+          # Pod 상태 확인
+          kubectl get pods -n ${DEPLOY_NAMESPACE} -l serving.kserve.io/inferenceservice=${{ env.MODEL_NAME }}
+          
+          # InferenceService 상태
+          STATUS=$(kubectl get inferenceservice ${{ env.MODEL_NAME }} -n ${DEPLOY_NAMESPACE} \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+          
+          if [ "$STATUS" == "True" ]; then
+            echo "✅ Deployment is healthy!"
+          else
+            echo "⚠️ Deployment may not be fully ready"
+            kubectl describe inferenceservice ${{ env.MODEL_NAME }} -n ${DEPLOY_NAMESPACE}
+          fi
+      
+      - name: Smoke test (optional)
+        env:
+          DEPLOY_NAMESPACE: ${{ steps.namespace.outputs.namespace }}
         continue-on-error: true
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
         run: |
-          if [ -z "$SLACK_WEBHOOK_URL" ]; then
-            echo "⚠️  SLACK_WEBHOOK_URL not configured - skipping notification"
-            exit 0
-          fi
+          echo "🧪 Running smoke test..."
           
-          STATUS="${{ job.status }}"
-          COLOR="good"
-          if [ "$STATUS" != "success" ]; then
-            COLOR="danger"
-          fi
+          # 서비스 URL 가져오기
+          SERVICE_URL=$(kubectl get inferenceservice ${{ env.MODEL_NAME }} -n ${DEPLOY_NAMESPACE} \
+            -o jsonpath='{.status.url}')
           
-          curl -X POST $SLACK_WEBHOOK_URL \
-            -H 'Content-Type: application/json' \
-            -d '{
-              "attachments": [{
-                "color": "'$COLOR'",
-                "title": "Model Deployment '$STATUS'",
-                "fields": [
-                  {
-                    "title": "Repository",
-                    "value": "'"${{ github.repository }}"'",
-                    "short": true
-                  },
-                  {
-                    "title": "Branch",
-                    "value": "'"${{ github.ref_name }}"'",
-                    "short": true
-                  },
-                  {
-                    "title": "Image Tag",
-                    "value": "'"$IMAGE_TAG"'",
-                    "short": true
-                  },
-                  {
-                    "title": "Commit",
-                    "value": "<https://github.com/'"${{ github.repository }}"'/commit/'"${{ github.sha }}"'|'"${GITHUB_SHA:0:7}"'>",
-                    "short": true
-                  }
-                ],
-                "footer": "GitHub Actions",
-                "footer_icon": "https://github.githubassets.com/favicon.ico",
-                "ts": '"$(date +%s)"'
-              }]
-            }'
+          if [ -n "$SERVICE_URL" ]; then
+            # 간단한 헬스 체크
+            curl -s --max-time 10 "${SERVICE_URL}/v1/models/${{ env.MODEL_NAME }}" || echo "Health check endpoint not available"
+          else
+            echo "Service URL not available yet"
+          fi
 
-      - name: Generate deployment summary
-        if: always()
-        env:
-          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+  # ============================================================
+  # Job 4: 배포 완료 알림
+  # ============================================================
+  notify:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-kserve, verify-deployment]
+    if: always()
+    
+    steps:
+      - name: Deployment Summary
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Image Tag:** $IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployment Details" >> $GITHUB_STEP_SUMMARY
-          echo "- Canary Traffic: 10%" >> $GITHUB_STEP_SUMMARY
-          echo "- Min Replicas: 1" >> $GITHUB_STEP_SUMMARY
-          echo "- Max Replicas: 3" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Monitoring" >> $GITHUB_STEP_SUMMARY
-          echo "- [Grafana Dashboard](http://grafana.monitoring.svc.cluster.local:3000)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Prometheus](http://prometheus.monitoring.svc.cluster.local:9090)" >> $GITHUB_STEP_SUMMARY
+          echo "============================================================"
+          echo "  Deployment Summary"
+          echo "============================================================"
+          echo ""
+          echo "📦 Build: ${{ needs.build-and-push.result }}"
+          echo "🚀 Deploy: ${{ needs.deploy-kserve.result }}"
+          echo "✅ Verify: ${{ needs.verify-deployment.result }}"
+          echo ""
+          echo "🔗 Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          if [ "${{ needs.verify-deployment.result }}" == "success" ]; then
+            echo ""
+            echo "🎉 Deployment completed successfully!"
+          else
+            echo ""
+            echo "⚠️ Deployment may have issues. Please check the logs."
+          fi

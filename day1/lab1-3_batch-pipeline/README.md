@@ -49,7 +49,7 @@ lab1-3_batch-pipeline/
 │   └── 2_batch_processing/
 │       └── pandas_batch_job.py     # Part 2: Batch 처리 (45분)
 └── notebooks/
-    └── README_NOTEBOOK.md           # Jupyter Notebook 실습 가이드
+    └── batch_pipeline.ipynb        # Jupyter Notebook 실습 코드
 ```
 
 ---
@@ -100,18 +100,18 @@ ETL 파이프라인
 ============================================================
 
 사용자: 01
-버킷: mlops-training-data-user01
+버킷: mlops-training-user01
 리전: ap-northeast-2
 
 ============================================================
 STEP 1: S3 Data Lake 생성
 ============================================================
-✅ 버킷 생성 완료: mlops-training-data-user01
+✅ 버킷 생성 완료: mlops-training-user01
 
 Data Lake 구조:
-  Bronze Layer (원본): s3://mlops-training-data-user01/raw/
-  Silver Layer (정제): s3://mlops-training-data-user01/processed/
-  Gold Layer (집계):   s3://mlops-training-data-user01/curated/
+  Bronze Layer (원본): s3://mlops-training-user01/raw/
+  Silver Layer (정제): s3://mlops-training-user01/processed/
+  Gold Layer (집계):   s3://mlops-training-user01/curated/
 
 ============================================================
 STEP 2: 샘플 데이터 생성
@@ -146,7 +146,7 @@ STEP 3: ETL 처리
   ✅ age_group 컬럼 추가
 
 💾 Silver Layer에 저장 중...
-✅ 저장 완료: s3://mlops-training-data-user01/processed/customers_cleaned/
+✅ 저장 완료: s3://mlops-training-user01/processed/customers_cleaned/
 
 ============================================================
 데이터 품질 리포트
@@ -161,7 +161,7 @@ STEP 3: ETL 처리
 
 ```bash
 # Silver Layer 데이터 확인
-aws s3 ls s3://mlops-training-data-user01/processed/customers_cleaned/ --recursive
+aws s3 ls s3://mlops-training-user01/processed/customers_cleaned/ --recursive
 ```
 
 **예상 출력:**
@@ -213,13 +213,13 @@ BATCH 데이터 처리 (Pandas)
 ============================================================
 
 사용자: 01
-버킷: mlops-training-data-user01
+버킷: mlops-training-user01
 리전: ap-northeast-2
 
 ============================================================
 Silver Layer 데이터 읽기
 ============================================================
-경로: s3://mlops-training-data-user01/processed/customers_cleaned/
+경로: s3://mlops-training-user01/processed/customers_cleaned/
 ✅ 900행 로드 완료
 
 스키마:
@@ -267,7 +267,7 @@ dtype: object
 ============================================================
 Gold Layer에 결과 저장
 ============================================================
-경로: s3://mlops-training-data-user01/curated/analysis/
+경로: s3://mlops-training-user01/curated/analysis/
 ✅ 도시별 분석 저장: s3://.../city_analysis/
 ✅ 나이대별 분석 저장: s3://.../age_analysis/
 ✅ 도메인별 분석 저장: s3://.../domain_analysis/
@@ -278,10 +278,10 @@ Gold Layer에 결과 저장
 ✅ BATCH 데이터 처리 완료!
 ============================================================
 
-결과 위치: s3://mlops-training-data-user01/curated/analysis/
+결과 위치: s3://mlops-training-user01/curated/analysis/
 
 S3에서 확인:
-  aws s3 ls s3://mlops-training-data-user01/curated/analysis/ --recursive
+  aws s3 ls s3://mlops-training-user01/curated/analysis/ --recursive
 
 처리된 데이터:
   - 도시별 분석: 4개 도시
@@ -294,7 +294,7 @@ S3에서 확인:
 
 ```bash
 # 결과 파일 확인
-aws s3 ls s3://mlops-training-data-user01/curated/analysis/ --recursive
+aws s3 ls s3://mlops-training-user01/curated/analysis/ --recursive
 
 # 예상 출력:
 # curated/analysis/city_analysis/...parquet
@@ -310,11 +310,11 @@ aws s3 ls s3://mlops-training-data-user01/curated/analysis/ --recursive
 import awswrangler as wr
 
 # Gold Layer 결과 읽기
-city_df = wr.s3.read_parquet("s3://mlops-training-data-user01/curated/analysis/city_analysis/")
+city_df = wr.s3.read_parquet("s3://mlops-training-user01/curated/analysis/city_analysis/")
 print("도시별 고객 수:")
 print(city_df)
 
-age_df = wr.s3.read_parquet("s3://mlops-training-data-user01/curated/analysis/age_analysis/")
+age_df = wr.s3.read_parquet("s3://mlops-training-user01/curated/analysis/age_analysis/")
 print("\n나이대별 분포:")
 print(age_df)
 ```
@@ -362,7 +362,7 @@ print(age_df)
 aws sts get-caller-identity
 
 # S3 접근 테스트
-aws s3 ls s3://mlops-training-data-user01/
+aws s3 ls s3://mlops-training-user01/
 ```
 
 ### 문제: 패키지 설치 오류

@@ -1,4 +1,4 @@
-# 🚀 MLOps 파이프라인 구현 [고급]
+# 🚀 MLOps 파이프라인 구현
 
 > **현대오토에버** - 3일 24시간 MLOps 실습 자료
 
@@ -122,7 +122,7 @@ ha-mlops-pipeline/
     ├── lab3-1_drift-monitoring/
     ├── lab3-2_e2e-pipeline/
     ├── lab3-3_model-optimization/    # 🆕 ONNX & Quantization
-    └── Project/                      # 팀 프로젝트
+    └── project/                      # 팀 프로젝트
 
 ```
 
@@ -140,15 +140,17 @@ cd ha-mlops-pipeline
 ### 2. 환경 변수 설정
 
 ```bash
-# 본인의 수강생 번호로 변경 (01~30)
-export USER_NUM="01"
+# ⚠️ 본인의 사용자 번호로 변경하세요!
+export USER_NUM="01"  # 예: 01, 02, ..., 15, 20
 
-# 네임스페이스 설정
+# 자동 설정되는 환경 변수
 export NAMESPACE="kubeflow-user${USER_NUM}"
+export S3_BUCKET="mlops-training-user${USER_NUM}"
+export ECR_IRIS_API_REPO="mlops-training/user${USER_NUM}"
 
 # 확인
-echo "사용자: user${USER_NUM}"
 echo "네임스페이스: ${NAMESPACE}"
+echo "S3 버킷: ${S3_BUCKET}"
 ```
 
 ### 3. AWS 자격 증명 설정
@@ -216,7 +218,7 @@ kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
 |------|------|
 | [Project](day3/Project/) | 팀별 E2E 파이프라인 구축 |
 | 시간 | 15:00 ~ 17:30 (2시간 30분) |
-| 구성 | 6개 팀 × 5명 |
+| 구성 | 5개 팀 × 3명 |
 | 발표 | 팀별 15분 발표 + Q&A |
 
 ---
@@ -261,11 +263,6 @@ kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
 2. 🙋 강사에게 질문
 3. 💬 옆 수강생과 협력
 
-### 교육 전 환경 설정 문의
-
-- 📧 교육 담당자 이메일
-- 📱 교육 담당자 연락처
-
 ---
 
 ## 📝 참고 자료
@@ -281,12 +278,6 @@ kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
 
 - [AWS EKS 워크샵](https://www.eksworkshop.com/)
 - [Kubernetes 공식 튜토리얼](https://kubernetes.io/docs/tutorials/)
-
----
-
-## 📄 라이선스
-
-이 교육 자료는 현대오토에버 내부 교육 목적으로 제작되었습니다.
 
 ---
 

@@ -33,7 +33,7 @@ AWS_SECRET_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 AWS_REGION = os.getenv('AWS_DEFAULT_REGION', 'ap-northeast-2')
 
 # S3 버킷 이름 생성
-BUCKET_NAME = f"mlops-training-data-user{USER_NUM}"
+BUCKET_NAME = f"mlops-training-user{USER_NUM}"
 
 print(f"\n사용자: {USER_NUM}")
 print(f"버킷: {BUCKET_NAME}")
@@ -49,18 +49,6 @@ print("=" * 60)
 
 # boto3 S3 클라이언트 생성
 s3_client = boto3.client('s3', region_name=AWS_REGION)
-
-try:
-    # S3 버킷 생성
-    s3_client.create_bucket(
-        Bucket=BUCKET_NAME,
-        CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
-    )
-    print(f"✅ 버킷 생성 완료: {BUCKET_NAME}")
-except s3_client.exceptions.BucketAlreadyOwnedByYou:
-    print(f"✅ 버킷이 이미 존재함: {BUCKET_NAME}")
-except Exception as e:
-    print(f"⚠️  버킷 생성 오류: {e}")
 
 # Data Lake 레이어 정의
 BRONZE_LAYER = f"s3://{BUCKET_NAME}/raw/"  # 원본 데이터

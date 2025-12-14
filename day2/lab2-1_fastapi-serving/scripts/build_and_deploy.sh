@@ -4,8 +4,10 @@
 # ============================================================
 #
 # 사용법:
-#   export ECR_REGISTRY="<YOUR_ECR>"
-#   export NAMESPACE="kubeflow-user01"
+#   # 1. 환경 변수 설정
+#   export USER_NUM="01"  # 본인 번호로 변경
+#
+#   # 2. 스크립트 실행
 #   ./scripts/build_and_deploy.sh
 #
 # ============================================================
@@ -46,27 +48,35 @@ echo ""
 # ============================================================
 log_step "환경 변수 확인"
 
+# USER_NUM 확인 및 기본값 설정
+if [ -z "$USER_NUM" ]; then
+    USER_NUM="01"
+    log_warn "USER_NUM not set, using default: ${USER_NUM}"
+fi
+
+# ECR_REGISTRY 확인
 if [ -z "$ECR_REGISTRY" ]; then
-    log_error "ECR_REGISTRY 환경 변수가 설정되지 않았습니다."
-    echo ""
-    echo "다음 명령어를 실행하세요:"
-    echo "  export ECR_REGISTRY='<YOUR_ECR_REGISTRY>'"
-    echo ""
-    echo "예시:"
-    echo "  export ECR_REGISTRY='123456789012.dkr.ecr.ap-northeast-2.amazonaws.com'"
-    exit 1
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+    if [ -z "$AWS_ACCOUNT_ID" ]; then
+        log_error "AWS 자격 증명을 확인할 수 없습니다."
+        echo ""
+        echo "다음 명령어를 실행하세요:"
+        echo "  aws configure"
+        exit 1
+    fi
+    ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com"
+    log_warn "ECR_REGISTRY not set, using: ${ECR_REGISTRY}"
 fi
 
+# NAMESPACE 확인
 if [ -z "$NAMESPACE" ]; then
-    log_error "NAMESPACE 환경 변수가 설정되지 않았습니다."
-    echo ""
-    echo "다음 명령어를 실행하세요:"
-    echo "  export NAMESPACE='kubeflow-user01'"
-    exit 1
+    NAMESPACE="kubeflow-user${USER_NUM}"
+    log_warn "NAMESPACE not set, using: ${NAMESPACE}"
 fi
 
-log_info "ECR Registry: $ECR_REGISTRY"
-log_info "Namespace: $NAMESPACE"
+log_info "User Number: ${USER_NUM}"
+log_info "ECR Registry: ${ECR_REGISTRY}"
+log_info "Namespace: ${NAMESPACE}"
 echo ""
 
 # ============================================================
@@ -90,7 +100,7 @@ echo ""
 # ============================================================
 log_step "[1/6] Docker 이미지 빌드"
 
-IMAGE_NAME="iris-api"
+IMAGE_NAME="user$USER_NUM"
 IMAGE_TAG="v1"
 
 log_info "이미지 빌드 중..."
@@ -125,8 +135,12 @@ echo ""
 # ============================================================
 log_step "[3/6] 이미지 태깅"
 
-FULL_IMAGE_NAME="${ECR_REGISTRY}/mlops-training/${IMAGE_NAME}:${IMAGE_TAG}"
-log_info "태그: ${FULL_IMAGE_NAME}"
+# 사용자별 ECR 레포지토리 경로 (변경됨!)
+ECR_REPO="mlops-training/${IMAGE_NAME}"
+FULL_IMAGE_NAME="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+
+log_info "사용자별 ECR 레포지토리: ${ECR_REPO}"
+log_info "전체 이미지 경로: ${FULL_IMAGE_NAME}"
 
 docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${FULL_IMAGE_NAME} || {
     log_error "이미지 태깅 실패"
@@ -144,6 +158,9 @@ log_step "[4/6] ECR에 이미지 푸시"
 log_info "이미지 푸시 중..."
 docker push ${FULL_IMAGE_NAME} || {
     log_error "이미지 푸시 실패"
+    echo ""
+    echo "ECR 레포지토리가 존재하는지 확인하세요:"
+    echo "  aws ecr describe-repositories --repository-names ${ECR_REPO}"
     exit 1
 }
 
@@ -155,14 +172,20 @@ echo ""
 # ============================================================
 log_step "[5/6] Kubernetes 배포"
 
+# 환경 변수 설정 (envsubst용)
+export ECR_REGISTRY
+export NAMESPACE
+export USER_NUM
+export ECR_REPO
+
 log_info "Deployment 배포 중..."
-envsubst < deployment.yaml | kubectl apply -f - || {
+envsubst < manifests/deployment.yaml | kubectl apply -f - || {
     log_error "Deployment 배포 실패"
     exit 1
 }
 
 log_info "Service 배포 중..."
-envsubst < service.yaml | kubectl apply -f - || {
+envsubst < manifests/service.yaml | kubectl apply -f - || {
     log_error "Service 배포 실패"
     exit 1
 }
@@ -198,6 +221,10 @@ echo "============================================================"
 echo "  ✅ 배포 완료!"
 echo "============================================================"
 echo ""
+echo "  👤 User Number: ${USER_NUM}"
+echo "  📁 Namespace: ${NAMESPACE}"
+echo "  🐳 Image: ${FULL_IMAGE_NAME}"
+echo ""
 
 echo "📦 Deployment 상태:"
 kubectl get deployment iris-api -n $NAMESPACE
@@ -230,19 +257,4 @@ echo "   curl -X POST http://localhost:8000/predict \\"
 echo "     -H 'Content-Type: application/json' \\"
 echo "     -d '{\"sepal_length\":5.1,\"sepal_width\":3.5,\"petal_length\":1.4,\"petal_width\":0.2}'"
 echo ""
-echo "   # Swagger UI"
-echo "   open http://localhost:8000/docs"
-echo ""
-echo "3️⃣  테스트 스크립트 실행:"
-echo "   ./scripts/test_api.sh"
-echo ""
-echo "4️⃣  백그라운드로 Port Forward:"
-echo "   nohup kubectl port-forward -n $NAMESPACE svc/iris-api-svc 8000:80 > /tmp/pf.log 2>&1 &"
-echo ""
-echo "5️⃣  Port Forward 종료:"
-echo "   pkill -f 'port-forward.*iris-api'"
-echo ""
 echo "============================================================"
-echo ""
-echo "💡 자세한 내용은 README.md를 참조하세요."
-echo ""

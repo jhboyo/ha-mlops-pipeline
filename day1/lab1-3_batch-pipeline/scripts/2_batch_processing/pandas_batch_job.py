@@ -25,7 +25,7 @@ print("=" * 60)
 
 # 환경 변수 읽기
 USER_NUM = os.getenv('USER_NUM', '01')
-BUCKET_NAME = f"mlops-training-data-user{USER_NUM}"
+BUCKET_NAME = f"mlops-training-user{USER_NUM}"
 AWS_REGION = os.getenv('AWS_DEFAULT_REGION', 'ap-northeast-2')
 
 print(f"\n사용자: {USER_NUM}")
@@ -182,4 +182,4 @@ print(f"  - 통계: 평균 나이 {stats['avg_age'].values[0]:.1f}세")
 
 print(f"\n다음 단계:")
 print(f"  - Jupyter Notebook에서 시각화:")
-print(f"    notebooks/README_NOTEBOOK.md 참고")
+print(f"    notebooks/batch_pipeline.ipynb 수행")

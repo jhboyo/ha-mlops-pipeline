@@ -1,52 +1,43 @@
-# Lab 3-2: Monitoring & CI/CD Requirements
-# Compatible with Python 3.9-3.12
+# Lab 3-2: Monitoring & CI/CD Pipeline
+# Python dependencies
 
-# Kubeflow Pipelines (requires kubernetes<26, pydantic<2)
-kfp==1.8.22
+# Prometheus & Monitoring
+prometheus-client>=0.17.0
+requests>=2.28.0
+urllib3>=1.26.0
 
-# MLflow
-mlflow==2.9.2
+# Data Processing
+pandas>=1.5.0
+numpy>=1.24.0
+scipy>=1.10.0
 
-# Data Science (Python 3.12 compatible)
-scikit-learn==1.4.0
-pandas==2.1.4
-numpy==1.26.4
-joblib==1.3.2
+# Machine Learning
+scikit-learn>=1.2.0
+joblib>=1.2.0
 
-# Model Serving (pydantic 1.x for kfp compatibility)
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==1.10.13
+# API (optional)
+pydantic>=2.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
 
-# HTTP
-httpx==0.25.2
-requests==2.31.0
-
-# Kubernetes (compatible with kfp 1.8.22)
-kubernetes==25.3.0
-
-# AWS
-boto3==1.34.0
-botocore==1.34.0
+# MLflow (optional)
+mlflow>=2.9.0
 
 # Visualization
-matplotlib==3.8.2
-seaborn==0.13.0
+matplotlib>=3.6.0
+seaborn>=0.12.0
 
-# Utilities
-python-dotenv==1.0.0
-PyYAML==6.0.1
-
-# Prometheus Client
-prometheus-client==0.19.0
-
-# CLI
-click==8.1.7
+# YAML Processing
+pyyaml>=6.0
 
 # Testing
-pytest==7.4.3
-pytest-cov==4.1.0
+pytest>=7.0.0
+pytest-cov>=4.0.0
 
-# Build tools (for Python 3.12 compatibility)
-setuptools>=65.0.0
+# Code Quality
+flake8>=6.0.0
+black>=23.0.0
+isort>=5.12.0
 
+# Kubernetes (for scripts)
+kubernetes>=28.0.0

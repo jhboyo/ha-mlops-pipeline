@@ -9,7 +9,7 @@ KServe InferenceService 배포 상태 확인 및 API 테스트
 
 현대오토에버 MLOps Training
 """
-
+import os
 import argparse
 import subprocess
 import json
@@ -182,6 +182,10 @@ def list_inferenceservices(namespace: str):
 
 
 def main():
+
+    USER_NUM = os.getenv('USER_NUM', '01')
+    DEFAULT_NAMESPACE = f"kubeflow-user{USER_NUM}"
+
     parser = argparse.ArgumentParser(
         description="KServe Deployment Test Tool"
     )
@@ -192,8 +196,8 @@ def main():
     )
     parser.add_argument(
         "--namespace", "-n",
-        default="kubeflow-user-example-com",
-        help="Kubernetes namespace"
+        default=DEFAULT_NAMESPACE,
+        help=f"Kubernetes namespace (default: {DEFAULT_NAMESPACE})"
     )
     parser.add_argument(
         "--list", "-l",

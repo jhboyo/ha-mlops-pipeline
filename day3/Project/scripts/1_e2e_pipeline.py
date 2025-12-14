@@ -1,203 +1,130 @@
+#!/usr/bin/env python3
 """
-E2E ML Pipeline 예제
-====================
+Day 3 Project: E2E ML Pipeline
+================================
+California Housing 데이터셋을 사용한 End-to-End MLOps 파이프라인
 
-California Housing 데이터셋을 사용한 완전한 E2E ML 파이프라인입니다.
-조별 프로젝트 구현의 참고용으로 사용하세요.
+⚠️ 중요: 실행 전 환경 변수 설정 필요!
+   export USER_NUM="01"  # 본인 번호로 변경
 
-실행 방법:
-    python 1_e2e_pipeline.py
-    
-생성 파일:
-    e2e_pipeline.yaml
-
-현대오토에버 MLOps Training
+파이프라인 단계:
+1. Data Load - California Housing 데이터 로드
+2. Preprocess - 데이터 전처리
+3. Feature Engineering - 피처 엔지니어링
+4. Train Model - MLflow로 모델 학습 및 추적
+5. Evaluate - 모델 평가
+6. Deploy - KServe로 모델 배포 (조건부)
 """
 
 import os
 from kfp import dsl
-from kfp.dsl import component, Input, Output, Dataset, Model
+from kfp.dsl import component, Input, Output, Dataset, Model, Metrics
 from kfp import compiler
 
+# ============================================================
+# 환경 변수 기반 동적 설정
+# ============================================================
+USER_NUM = os.getenv('USER_NUM', '01')
+DEFAULT_NAMESPACE = f"kubeflow-user{USER_NUM}"
+DEFAULT_EXPERIMENT_NAME = f"e2e-pipeline-user{USER_NUM}"
+DEFAULT_MODEL_NAME = f"california-model-user{USER_NUM}"
+
+print(f"[설정] USER_NUM: {USER_NUM}")
+print(f"[설정] DEFAULT_NAMESPACE: {DEFAULT_NAMESPACE}")
 
 # ============================================================
-# Component 1: 데이터 로드
+# Components
 # ============================================================
+
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=["pandas==2.0.3", "scikit-learn==1.3.2"]
+    packages_to_install=["scikit-learn", "pandas", "numpy"]
 )
 def load_data(
     data_source: str,
     output_data: Output[Dataset]
 ):
-    """
-    California Housing 데이터셋 로드
-    
-    Args:
-        data_source: 데이터 소스 (sklearn)
-        output_data: 출력 데이터셋 경로
-    """
+    """Step 1: 데이터 로드"""
     import pandas as pd
     from sklearn.datasets import fetch_california_housing
+    import json
     
-    print("=" * 60)
-    print("  Step 1: Load Data")
-    print("=" * 60)
+    print(f"📥 데이터 소스: {data_source}")
     
-    housing = fetch_california_housing(as_frame=True)
-    df = housing.frame
+    if data_source == "sklearn":
+        data = fetch_california_housing()
+        df = pd.DataFrame(data.data, columns=data.feature_names)
+        df['target'] = data.target
+    else:
+        raise ValueError(f"Unknown data source: {data_source}")
     
-    print(f"  Source: {data_source}")
-    print(f"  Shape: {df.shape}")
-    print(f"  Columns: {list(df.columns)}")
-    print(f"  Target: MedHouseVal (Median House Value in $100k)")
-    
-    df.to_csv(output_data.path, index=False)
-    print(f"  ✅ Data saved: {output_data.path}")
+    print(f"✅ 데이터 로드 완료: {df.shape}")
+    df.to_parquet(output_data.path)
 
 
-# ============================================================
-# Component 2: 전처리
-# ============================================================
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=["pandas==2.0.3", "scikit-learn==1.3.2", "numpy==1.24.3"]
+    packages_to_install=["scikit-learn", "pandas", "numpy"]
 )
 def preprocess(
     input_data: Input[Dataset],
     X_train_out: Output[Dataset],
     X_test_out: Output[Dataset],
     y_train_out: Output[Dataset],
-    y_test_out: Output[Dataset],
-    test_size: float = 0.2
+    y_test_out: Output[Dataset]
 ):
-    """
-    데이터 전처리: Train/Test 분할 및 정규화
-    
-    Args:
-        input_data: 입력 데이터셋
-        X_train_out, X_test_out: 피처 출력
-        y_train_out, y_test_out: 타겟 출력
-        test_size: 테스트 데이터 비율
-    """
+    """Step 2: 데이터 전처리"""
     import pandas as pd
     from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
     
-    print("=" * 60)
-    print("  Step 2: Preprocess")
-    print("=" * 60)
+    df = pd.read_parquet(input_data.path)
     
-    df = pd.read_csv(input_data.path)
-    print(f"  Loaded {len(df)} rows")
+    X = df.drop('target', axis=1)
+    y = df['target']
     
-    # 피처와 타겟 분리
-    X = df.drop(columns=['MedHouseVal'])
-    y = df['MedHouseVal']
-    
-    # Train/Test 분할
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
+        X, y, test_size=0.2, random_state=42
     )
     
-    # StandardScaler로 정규화
-    scaler = StandardScaler()
-    X_train_scaled = pd.DataFrame(
-        scaler.fit_transform(X_train),
-        columns=X_train.columns
-    )
-    X_test_scaled = pd.DataFrame(
-        scaler.transform(X_test),
-        columns=X_test.columns
-    )
+    print(f"✅ Train: {X_train.shape}, Test: {X_test.shape}")
     
-    # 저장
-    X_train_scaled.to_csv(X_train_out.path, index=False)
-    X_test_scaled.to_csv(X_test_out.path, index=False)
-    y_train.to_csv(y_train_out.path, index=False)
-    y_test.to_csv(y_test_out.path, index=False)
-    
-    print(f"  Train samples: {len(X_train)}")
-    print(f"  Test samples: {len(X_test)}")
-    print(f"  Features: {X_train.shape[1]}")
-    print(f"  ✅ Preprocessing completed")
+    X_train.to_parquet(X_train_out.path)
+    X_test.to_parquet(X_test_out.path)
+    pd.DataFrame(y_train).to_parquet(y_train_out.path)
+    pd.DataFrame(y_test).to_parquet(y_test_out.path)
 
 
-# ============================================================
-# Component 3: 피처 엔지니어링
-# ============================================================
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=["pandas==2.0.3", "numpy==1.24.3"]
+    packages_to_install=["scikit-learn", "pandas", "numpy"]
 )
 def feature_engineering(
     X_train_in: Input[Dataset],
     X_test_in: Input[Dataset],
     X_train_out: Output[Dataset],
     X_test_out: Output[Dataset]
-) -> int:
-    """
-    피처 엔지니어링: 파생 변수 생성
-    
-    Returns:
-        생성된 새 피처 개수
-    """
+):
+    """Step 3: 피처 엔지니어링"""
     import pandas as pd
-    import numpy as np
+    from sklearn.preprocessing import StandardScaler
+    import pickle
     
-    print("=" * 60)
-    print("  Step 3: Feature Engineering")
-    print("=" * 60)
+    X_train = pd.read_parquet(X_train_in.path)
+    X_test = pd.read_parquet(X_test_in.path)
     
-    X_train = pd.read_csv(X_train_in.path)
-    X_test = pd.read_csv(X_test_in.path)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
     
-    original_cols = list(X_train.columns)
+    pd.DataFrame(X_train_scaled, columns=X_train.columns).to_parquet(X_train_out.path)
+    pd.DataFrame(X_test_scaled, columns=X_test.columns).to_parquet(X_test_out.path)
     
-    def add_features(df):
-        """파생 변수 추가"""
-        df = df.copy()
-        
-        # 1. 가구당 방 수
-        df['rooms_per_household'] = df['AveRooms'] / (df['AveOccup'] + 1e-6)
-        
-        # 2. 방 대비 침실 비율
-        df['bedrooms_ratio'] = df['AveBedrms'] / (df['AveRooms'] + 1e-6)
-        
-        # 3. 가구당 인구
-        df['population_per_household'] = df['Population'] / (df['AveOccup'] + 1e-6)
-        
-        return df
-    
-    X_train_fe = add_features(X_train)
-    X_test_fe = add_features(X_test)
-    
-    new_cols = [c for c in X_train_fe.columns if c not in original_cols]
-    
-    print(f"  Original features: {len(original_cols)}")
-    print(f"  New features: {new_cols}")
-    print(f"  Total features: {len(X_train_fe.columns)}")
-    
-    X_train_fe.to_csv(X_train_out.path, index=False)
-    X_test_fe.to_csv(X_test_out.path, index=False)
-    
-    print(f"  ✅ Feature engineering completed")
-    
-    return len(new_cols)
+    print(f"✅ 피처 스케일링 완료")
 
 
-# ============================================================
-# Component 4: 모델 학습
-# ============================================================
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=[
-        "pandas==2.0.3",
-        "scikit-learn==1.3.2",
-        "mlflow==2.9.2",
-        "numpy==1.24.3"
-    ]
+    packages_to_install=["scikit-learn", "pandas", "numpy", "mlflow", "boto3"]
 )
 def train_model(
     X_train: Input[Dataset],
@@ -206,174 +133,83 @@ def train_model(
     y_test: Input[Dataset],
     mlflow_tracking_uri: str,
     experiment_name: str,
-    n_estimators: int = 100,
-    max_depth: int = 10
+    n_estimators: int,
+    max_depth: int
 ) -> str:
-    """
-    모델 학습 및 MLflow 메트릭 기록
-    
-    Note:
-        S3 권한 문제를 피하기 위해 artifact 저장(log_dict, log_model)은
-        비활성화되어 있습니다. 메트릭과 파라미터만 기록합니다.
-    
-    Returns:
-        MLflow Run ID
-    """
+    """Step 4: 모델 학습 (MLflow 추적)"""
     import pandas as pd
-    import numpy as np
     import mlflow
     from sklearn.ensemble import RandomForestRegressor
-    from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-    import os
+    from sklearn.metrics import mean_squared_error, r2_score
+    import numpy as np
     
-    print("=" * 60)
-    print("  Step 4: Train Model")
-    print("=" * 60)
-    
-    # 데이터 로드
-    X_train_df = pd.read_csv(X_train.path)
-    X_test_df = pd.read_csv(X_test.path)
-    y_train_df = pd.read_csv(y_train.path)
-    y_test_df = pd.read_csv(y_test.path)
-    
-    print(f"  Training data: {X_train_df.shape}")
-    print(f"  Test data: {X_test_df.shape}")
-    
-    # MLflow 설정
-    os.environ['MLFLOW_TRACKING_URI'] = mlflow_tracking_uri
     mlflow.set_tracking_uri(mlflow_tracking_uri)
     mlflow.set_experiment(experiment_name)
     
-    print(f"  MLflow URI: {mlflow_tracking_uri}")
-    print(f"  Experiment: {experiment_name}")
+    X_tr = pd.read_parquet(X_train.path)
+    X_te = pd.read_parquet(X_test.path)
+    y_tr = pd.read_parquet(y_train.path).values.ravel()
+    y_te = pd.read_parquet(y_test.path).values.ravel()
     
     with mlflow.start_run() as run:
-        run_id = run.info.run_id
-        print(f"  Run ID: {run_id}")
-        
-        # 파라미터 로깅
-        mlflow.log_params({
-            "n_estimators": n_estimators,
-            "max_depth": max_depth,
-            "random_state": 42,
-            "model_type": "RandomForestRegressor"
-        })
-        
-        # 모델 학습
-        print(f"  Training RandomForest...")
         model = RandomForestRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
             random_state=42,
             n_jobs=-1
         )
-        model.fit(X_train_df, y_train_df.values.ravel())
+        model.fit(X_tr, y_tr)
         
-        # 예측 및 평가
-        y_pred = model.predict(X_test_df)
+        y_pred = model.predict(X_te)
+        rmse = np.sqrt(mean_squared_error(y_te, y_pred))
+        r2 = r2_score(y_te, y_pred)
         
-        r2 = r2_score(y_test_df, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test_df, y_pred))
-        mae = mean_absolute_error(y_test_df, y_pred)
+        mlflow.log_params({
+            "n_estimators": n_estimators,
+            "max_depth": max_depth
+        })
+        mlflow.log_metrics({"rmse": rmse, "r2": r2})
+        mlflow.sklearn.log_model(model, "model")
         
-        # 메트릭 로깅
-        mlflow.log_metrics({"r2": r2, "rmse": rmse, "mae": mae})
+        print(f"✅ 모델 학습 완료")
+        print(f"   RMSE: {rmse:.4f}")
+        print(f"   R2: {r2:.4f}")
+        print(f"   Run ID: {run.info.run_id}")
         
-        print(f"  Performance:")
-        print(f"    - R2 Score: {r2:.4f}")
-        print(f"    - RMSE: {rmse:.4f}")
-        print(f"    - MAE: {mae:.4f}")
-        
-        # 피처 중요도 (메트릭으로만 기록, S3 저장 안함)
-        feature_importance = dict(zip(
-            X_train_df.columns,
-            model.feature_importances_
-        ))
-        
-        sorted_importance = sorted(
-            feature_importance.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:5]
-        
-        print(f"  Top 5 Feature Importance:")
-        for feat, imp in sorted_importance:
-            safe_name = feat.replace(" ", "_")[:15]
-            mlflow.log_metric(f"fi_{safe_name}", imp)
-            print(f"    - {feat}: {imp:.4f}")
-        
-        # ⚠️ S3 artifact 저장 비활성화 (권한 문제 방지)
-        # mlflow.log_dict(feature_importance, "feature_importance.json")
-        # mlflow.sklearn.log_model(model, "model")
-        
-        mlflow.set_tag("pipeline", "e2e-ml-pipeline")
-        
-        print(f"  ✅ Training completed")
-    
-    return run_id
+        return run.info.run_id
 
 
-# ============================================================
-# Component 5: 모델 평가
-# ============================================================
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=["mlflow==2.9.2"]
+    packages_to_install=["mlflow", "boto3"]
 )
 def evaluate_model(
     run_id: str,
     mlflow_tracking_uri: str,
-    r2_threshold: float = 0.75
+    r2_threshold: float
 ) -> str:
-    """
-    모델 평가 및 배포 결정
-    
-    Returns:
-        "deploy" or "skip"
-    """
+    """Step 5: 모델 평가 및 배포 결정"""
     import mlflow
-    import os
     
-    print("=" * 60)
-    print("  Step 5: Evaluate Model")
-    print("=" * 60)
-    
-    os.environ['MLFLOW_TRACKING_URI'] = mlflow_tracking_uri
     mlflow.set_tracking_uri(mlflow_tracking_uri)
     
-    client = mlflow.tracking.MlflowClient()
-    run = client.get_run(run_id)
+    run = mlflow.get_run(run_id)
+    r2 = run.data.metrics.get("r2", 0)
     
-    r2 = float(run.data.metrics.get("r2", 0))
-    rmse = float(run.data.metrics.get("rmse", 0))
-    mae = float(run.data.metrics.get("mae", 0))
-    
-    print(f"  Run ID: {run_id}")
-    print(f"  Metrics:")
-    print(f"    - R2: {r2:.4f}")
-    print(f"    - RMSE: {rmse:.4f}")
-    print(f"    - MAE: {mae:.4f}")
-    print(f"  Threshold: R2 >= {r2_threshold}")
+    print(f"📊 R2 Score: {r2:.4f}")
+    print(f"📊 Threshold: {r2_threshold}")
     
     if r2 >= r2_threshold:
-        decision = "deploy"
-        print(f"  ✅ Decision: DEPLOY")
+        print("✅ 배포 조건 충족!")
+        return "deploy"
     else:
-        decision = "skip"
-        print(f"  ⚠️ Decision: SKIP")
-    
-    with mlflow.start_run(run_id=run_id):
-        mlflow.set_tag("deployment_decision", decision)
-    
-    return decision
+        print("⚠️ 배포 조건 미충족")
+        return "skip"
 
 
-# ============================================================
-# Component 6: 모델 배포 (KServe)
-# ============================================================
 @component(
     base_image="python:3.9-slim",
-    packages_to_install=["kubernetes==28.1.0", "mlflow==2.9.2"]
+    packages_to_install=["kubernetes", "mlflow", "boto3"]
 )
 def deploy_model(
     run_id: str,
@@ -381,144 +217,44 @@ def deploy_model(
     namespace: str,
     mlflow_tracking_uri: str
 ):
-    """
-    KServe InferenceService로 모델 배포
-    
-    Note:
-        namespace 파라미터는 현재 Kubeflow 프로필의 네임스페이스와
-        동일해야 RBAC 권한 문제가 발생하지 않습니다.
-    """
+    """Step 6: KServe로 모델 배포"""
+    import mlflow
     from kubernetes import client, config
-    from kubernetes.client.rest import ApiException
-    import time
     
-    print("=" * 60)
-    print("  Step 6: Deploy Model (KServe)")
-    print("=" * 60)
+    print(f"🚀 모델 배포 시작")
+    print(f"   Model: {model_name}")
+    print(f"   Namespace: {namespace}")
+    print(f"   Run ID: {run_id}")
     
-    print(f"  Model Name: {model_name}")
-    print(f"  Namespace: {namespace}")
-    print(f"  Run ID: {run_id}")
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
+    run = mlflow.get_run(run_id)
+    artifact_uri = run.info.artifact_uri
     
-    # Kubernetes 설정
-    try:
-        config.load_incluster_config()
-        print(f"  Using in-cluster config")
-    except:
-        config.load_kube_config()
-        print(f"  Using local kubeconfig")
-    
-    api = client.CustomObjectsApi()
-    
-    # InferenceService 정의
-    isvc = {
-        "apiVersion": "serving.kserve.io/v1beta1",
-        "kind": "InferenceService",
-        "metadata": {
-            "name": model_name,
-            "namespace": namespace,
-            "annotations": {
-                "sidecar.istio.io/inject": "false"
-            }
-        },
-        "spec": {
-            "predictor": {
-                "sklearn": {
-                    "storageUri": f"mlflow-artifacts:/{run_id}/model",
-                    "resources": {
-                        "requests": {"cpu": "100m", "memory": "256Mi"},
-                        "limits": {"cpu": "500m", "memory": "512Mi"}
-                    }
-                }
-            }
-        }
-    }
-    
-    # 기존 InferenceService 삭제 (있으면)
-    print(f"  Creating InferenceService...")
-    try:
-        api.delete_namespaced_custom_object(
-            group="serving.kserve.io",
-            version="v1beta1",
-            namespace=namespace,
-            plural="inferenceservices",
-            name=model_name
-        )
-        print(f"  Deleted existing InferenceService")
-        time.sleep(5)
-    except ApiException as e:
-        if e.status != 404:
-            raise
-    
-    # 새 InferenceService 생성
-    api.create_namespaced_custom_object(
-        group="serving.kserve.io",
-        version="v1beta1",
-        namespace=namespace,
-        plural="inferenceservices",
-        body=isvc
-    )
-    
-    print(f"  ✅ InferenceService created: {model_name}")
-    
-    # 배포 상태 확인 (최대 60초)
-    print(f"  Waiting for deployment (max 60s)...")
-    for i in range(6):
-        time.sleep(10)
-        try:
-            status = api.get_namespaced_custom_object(
-                group="serving.kserve.io",
-                version="v1beta1",
-                namespace=namespace,
-                plural="inferenceservices",
-                name=model_name
-            )
-            conditions = status.get("status", {}).get("conditions", [])
-            ready = next((c for c in conditions if c.get("type") == "Ready"), None)
-            if ready and ready.get("status") == "True":
-                print(f"  ✅ InferenceService READY!")
-                break
-            print(f"  ⏳ Status: {ready.get('status') if ready else 'Unknown'} ({(i+1)*10}s)")
-        except Exception as e:
-            print(f"  ⏳ Waiting... ({(i+1)*10}s)")
-    
-    print(f"  Endpoint:")
-    print(f"    http://{model_name}.{namespace}.svc.cluster.local/v1/models/{model_name}:predict")
-    print(f"  ✅ Deployment completed!")
+    print(f"   Artifact URI: {artifact_uri}")
+    print(f"✅ 배포 완료 (시뮬레이션)")
 
 
-# ============================================================
-# Component 7: 알림
-# ============================================================
 @component(base_image="python:3.9-slim")
-def send_alert(run_id: str, message: str = "Model did not meet threshold"):
-    """성능 미달 알림"""
-    print("=" * 60)
-    print("  Alert Notification")
-    print("=" * 60)
-    print(f"  Run ID: {run_id}")
-    print(f"  Message: {message}")
-    print(f"")
-    print(f"  Recommendations:")
-    print(f"    1. Add more features")
-    print(f"    2. Tune hyperparameters")
-    print(f"    3. Try different algorithms")
-    print(f"    4. Collect more data")
+def send_alert(run_id: str, message: str):
+    """알림 전송"""
+    print(f"⚠️ Alert: {message}")
+    print(f"   Run ID: {run_id}")
 
 
 # ============================================================
-# 파이프라인 정의
+# Pipeline Definition
 # ============================================================
+
 @dsl.pipeline(
     name="E2E ML Pipeline",
-    description="End-to-End ML Pipeline for California Housing Price Prediction"
+    description="End-to-End ML Pipeline with MLflow and KServe"
 )
 def e2e_pipeline(
     data_source: str = "sklearn",
-    experiment_name: str = "e2e-pipeline-user01",
-    model_name: str = "california-model-user01",
-    namespace: str = "kubeflow-user-example-com",
     mlflow_tracking_uri: str = "http://mlflow-server-service.mlflow-system.svc.cluster.local:5000",
+    experiment_name: str = DEFAULT_EXPERIMENT_NAME,
+    model_name: str = DEFAULT_MODEL_NAME,
+    namespace: str = DEFAULT_NAMESPACE,  # ⚠️ 동적 기본값!
     n_estimators: int = 100,
     max_depth: int = 10,
     r2_threshold: float = 0.75
@@ -526,15 +262,15 @@ def e2e_pipeline(
     """
     E2E ML Pipeline
     
-    Args:
-        data_source: 데이터 소스 (sklearn)
-        experiment_name: MLflow 실험 이름
-        model_name: 배포할 모델 이름
-        namespace: KServe 배포 네임스페이스 (⚠️ 현재 프로필과 동일해야 함)
-        mlflow_tracking_uri: MLflow 서버 URI
-        n_estimators: RandomForest 트리 개수
-        max_depth: 최대 트리 깊이
-        r2_threshold: 배포 결정 임계값
+    Parameters:
+    - data_source: 데이터 소스 (sklearn)
+    - mlflow_tracking_uri: MLflow 서버 URI
+    - experiment_name: MLflow 실험 이름
+    - model_name: 배포할 모델 이름
+    - namespace: Kubernetes 네임스페이스 (⚠️ 본인 것으로 변경!)
+    - n_estimators: RandomForest estimator 수
+    - max_depth: 트리 최대 깊이
+    - r2_threshold: 배포 결정 임계값
     """
     
     # Step 1: 데이터 로드
@@ -604,14 +340,14 @@ if __name__ == "__main__":
     print(f"\n✅ Pipeline compiled: {pipeline_file}")
     print(f"\n📋 Default Parameters:")
     print(f"  - data_source: sklearn")
-    print(f"  - experiment_name: e2e-pipeline-user01")
-    print(f"  - model_name: california-model-user01")
-    print(f"  - namespace: kubeflow-user-example-com")
+    print(f"  - experiment_name: {DEFAULT_EXPERIMENT_NAME}")
+    print(f"  - model_name: {DEFAULT_MODEL_NAME}")
+    print(f"  - namespace: {DEFAULT_NAMESPACE}")
     print(f"  - n_estimators: 100")
     print(f"  - max_depth: 10")
     print(f"  - r2_threshold: 0.75")
     print(f"\n⚠️  Important:")
-    print(f"  namespace 파라미터는 현재 Kubeflow 프로필의")
-    print(f"  네임스페이스와 동일해야 합니다!")
+    print(f"  namespace 파라미터가 현재 USER_NUM={USER_NUM} 기준으로 설정됨")
+    print(f"  다른 사용자라면 export USER_NUM='XX'로 변경 후 다시 컴파일하세요!")
     print(f"\n🚀 Next: Upload {pipeline_file} to Kubeflow UI")
     print("=" * 60)
