@@ -20,7 +20,7 @@ import mlflow.sklearn
 from mlflow import MlflowClient
 
 # 환경 변수 읽기
-USER_NUM = os.getenv('USER_NUM', '01')
+USER_NUM = os.getenv('USER_NUM', '03')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 AWS_REGION = os.getenv('AWS_DEFAULT_REGION', 'ap-northeast-2')
