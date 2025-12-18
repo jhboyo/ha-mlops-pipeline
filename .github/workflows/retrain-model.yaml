@@ -13,7 +13,7 @@ on:
       user_id:
         description: 'User ID that triggered retrain'
         required: true
-        default: 'user01'
+        default: 'user03'
       drift_score:
         description: 'Drift score that triggered retrain'
         required: true
