@@ -31,18 +31,18 @@ on:
           - staging
           - production
       user_namespace:
-        description: 'Target user namespace (e.g., kubeflow-user01)'
+        description: 'kubeflow-user03'
         required: true
-        default: 'YOUR_NAMESPACE'
+        default: 'kubeflow-user03'
 
 env:
   AWS_REGION: ap-northeast-2
   MODEL_NAME: california-housing
   SOURCE_PATH: day3/lab3-2_monitoring-cicd
-  ECR_REGISTRY: 'YOUR_ECR_REGISTRY'
-  ECR_REPOSITORY: 'YOUR_ECR_REPOSITORY'
-  EKS_CLUSTER_NAME: 'YOUR_EKS_CLUSTER_NAME'
-  NAMESPACE: YOUR_NAMESPACE
+  ECR_REGISTRY: '347880001135'
+  ECR_REPOSITORY: 'mlops-training/user03'
+  EKS_CLUSTER_NAME: 'test-eks-cluster'
+  NAMESPACE: kubeflow-user03
 
 jobs:
   # ============================================================
