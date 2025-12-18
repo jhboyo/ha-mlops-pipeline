@@ -39,7 +39,7 @@ env:
   AWS_REGION: ap-northeast-2
   MODEL_NAME: california-housing
   SOURCE_PATH: day3/lab3-2_monitoring-cicd
-  ECR_REGISTRY: '347880001135'
+  ECR_REGISTRY: '347880001135.dkr.ecr.ap-northeast-2.amazonaws.com'
   ECR_REPOSITORY: 'mlops-training/user03'
   EKS_CLUSTER_NAME: 'test-eks-cluster'
   NAMESPACE: kubeflow-user03
